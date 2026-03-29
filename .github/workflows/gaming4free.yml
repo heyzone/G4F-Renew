@@ -1,0 +1,88 @@
+name: Game4Free Buster
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # ======================
+      # WARP
+      # ======================
+
+      - name: Enable WARP
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+
+      # ======================
+      # 系统依赖
+      # ======================
+
+      - name: Install deps
+        run: |
+          sudo apt update
+          sudo apt install -y xvfb wget unzip curl jq p7zip-full \
+            pulseaudio alsa-utils ffmpeg
+
+          pulseaudio --start --exit-idle-time=-1 || true
+
+          pactl load-module module-null-sink sink_name=virtual_speaker || true
+          pactl set-default-sink virtual_speaker || true
+
+          pactl load-module module-virtual-source source_name=virtual_mic || true
+          pactl set-default-source virtual_mic || true
+
+      # ======================
+      # Playwright
+      # ======================
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium
+
+      # ======================
+      # 下载 Buster
+      # ======================
+
+      - name: Download Buster
+        run: |
+          mkdir -p extensions/buster
+          wget -O extensions/buster/buster.zip \
+          https://github.com/dessant/buster/releases/download/v3.1.0/buster_captcha_solver_for_humans-3.1.0-chrome.zip
+
+      - name: Unzip Buster
+        run: |
+          mkdir -p extensions/buster/unpacked
+          7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked
+
+      # ======================
+      # 运行脚本
+      # ======================
+
+      - name: Run
+        run: |
+          mkdir -p screenshots
+          xvfb-run -a node register.js
+
+      # ======================
+      # 上传截图
+      # ======================
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/*
