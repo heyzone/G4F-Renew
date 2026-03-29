@@ -13,7 +13,8 @@ const SOCKS5_PROXY = process.env.SOCKS5_PROXY || "";
 const GOST_PORT    = parseInt(process.env.GOST_PORT || "18080", 10);
 const MAX_RETRY    = parseInt(process.env.MAX_RETRY || "2", 10);
 
-const SCREEN_DIR = path.resolve(__dirname, "screenshots");
+const EXT_NOPECHA = path.resolve(__dirname, "extensions/nopecha/unpacked");
+const SCREEN_DIR  = path.resolve(__dirname, "screenshots");
 
 const TELEGRAM_CHAT_ID   = process.env.TELEGRAM_CHAT_ID   || "";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -162,6 +163,23 @@ async function hideAdsByCSS(page) {
   });
 }
 
+/* ========================= EXTENSION CHECK ========================= */
+
+async function waitExtensionLoaded(context) {
+  console.log("🧩 等待 NopeCHA 扩展加载...");
+  for (let i = 0; i < 40; i++) {
+    const sw = context.serviceWorkers();
+    const bg = context.backgroundPages();
+    if (sw.length > 0 || bg.length > 0) {
+      console.log("✅ NopeCHA 扩展已加载");
+      return true;
+    }
+    await sleep(500);
+  }
+  console.log("⚠️ NopeCHA 扩展加载超时，继续尝试...");
+  return false;
+}
+
 /* ========================= RECAPTCHA ========================= */
 
 async function clickRecaptchaCheckbox(page) {
@@ -182,8 +200,8 @@ async function clickRecaptchaCheckbox(page) {
   await page.waitForTimeout(2000);
 }
 
-async function waitRecaptchaToken(page, timeoutMs = 120000) {
-  console.log("⏳ 等待 reCAPTCHA token 生成...");
+async function waitRecaptchaToken(page, timeoutMs = 300000) {
+  console.log("⏳ 等待 NopeCHA 解题并生成 token（最多5分钟）...");
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
@@ -202,7 +220,7 @@ async function waitRecaptchaToken(page, timeoutMs = 120000) {
     await page.waitForTimeout(2000);
   }
 
-  throw new Error("❌ reCAPTCHA token 等待超时（2分钟）");
+  throw new Error("❌ reCAPTCHA token 等待超时（5分钟）");
 }
 
 /* ========================= MAIN FLOW ========================= */
@@ -218,9 +236,16 @@ async function renewOnce(proxyServer) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "pw-profile-"));
 
   try {
+    // 检查 NopeCHA 扩展
+    if (!fs.existsSync(path.join(EXT_NOPECHA, "manifest.json"))) {
+      throw new Error("❌ NopeCHA manifest.json 不存在，请检查扩展路径");
+    }
+
     const launchArgs = [
       "--no-sandbox",
       "--disable-dev-shm-usage",
+      `--disable-extensions-except=${EXT_NOPECHA}`,
+      `--load-extension=${EXT_NOPECHA}`,
     ];
 
     if (proxyServer) {
@@ -236,6 +261,9 @@ async function renewOnce(proxyServer) {
 
     context.setDefaultTimeout(120000);
     await blockAds(context);
+
+    // 等待 NopeCHA 扩展加载
+    await waitExtensionLoaded(context);
 
     page = await context.newPage();
 
@@ -290,15 +318,15 @@ async function renewOnce(proxyServer) {
 
     await page.waitForTimeout(1000);
 
-    // ── 4. 点击 reCAPTCHA checkbox ──
+    // ── 4. 点击 reCAPTCHA checkbox（触发 NopeCHA 自动解题） ──
     await clickRecaptchaCheckbox(page);
 
-    // ── 5. 等待 reCAPTCHA token ──
-    await waitRecaptchaToken(page, 120000);
+    // ── 5. 等待 NopeCHA 自动生成 token ──
+    await waitRecaptchaToken(page, 300000);
 
     await snap(page, "recaptcha_passed");
 
-    // ── 6. 等待按钮文字变为 "Renew" 后点击 ──
+    // ── 6. 等待按钮从 "Complete Verification" 变为 "Renew" 后点击 ──
     console.log("⏳ 等待按钮变为 Renew...");
     const renewBtn = page.locator("button:has-text('Renew')");
     await renewBtn.waitFor({ state: "visible", timeout: 30000 });
