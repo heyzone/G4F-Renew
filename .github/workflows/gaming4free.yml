@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "0 * * * *"   # 🕕 每天18:00（UTC）
+    - cron: "40 * * * *"   # 🕕 每天18:00（UTC）
 
 jobs:
   run:
